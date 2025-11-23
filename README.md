@@ -11,6 +11,10 @@ The system processes insurance claims through three AI-powered stages:
 - Identifies claim details: policyholder, vehicle, incident, damage
 - Validates required fields for each claim
 - Processes multiple claims in batch
+- **Feedback Loop (Optional)**: LLM can review and refine its own extraction
+  - Self-reviews extraction quality
+  - Identifies missing or incorrect information
+  - Generates refined extraction based on feedback
 
 ### Stage II: Severity Assessment & Cost Estimation
 - Analyzes damage severity (Minor, Moderate, Major)
@@ -70,6 +74,29 @@ uv run udacity --input path/to/your/fnol.txt
 # or
 uv run udacity -i path/to/your/fnol.txt
 ```
+
+### Enable Feedback Loop
+
+To enable the feedback loop mechanism where the LLM reviews and refines its own Stage I extraction:
+
+```bash
+uv run udacity --feedback-loop
+# or
+uv run udacity -f
+```
+
+You can combine it with custom input:
+
+```bash
+uv run udacity --input path/to/your/fnol.txt --feedback-loop
+```
+
+The feedback loop process:
+1. **Initial Extraction**: LLM extracts structured data from raw text
+2. **Self-Review**: LLM reviews the extraction, identifies issues, and provides quality score
+3. **Refinement**: LLM creates improved extraction based on feedback
+
+This demonstrates how LLMs can iteratively improve their outputs through self-critique.
 
 The default input file is `inputs/sample_fnol.txt` which contains 5 sample claims.
 

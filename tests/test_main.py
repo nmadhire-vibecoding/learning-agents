@@ -3,7 +3,7 @@
 import os
 import json
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, call
 from src.main import (
     extract_fnol_information_batch, 
     assess_claim_severity,
@@ -298,3 +298,107 @@ def test_route_claims_to_queues_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(ValueError, match="GOOGLE_API_KEY environment variable is not set"):
             route_claims_to_queues(batch_info, batch_severity)
+
+
+def test_extract_fnol_with_feedback_loop():
+    """Test that feedback loop iterates until achieving target score."""
+    # Mock initial extraction response
+    initial_response = Mock()
+    initial_response.text = json.dumps({
+        "claims": [
+            {
+                "claim_id": "C001",
+                "incident_date": None,
+                "incident_location": "highway",
+                "policyholder_name": "John Smith",
+                "contact_phone": None,
+                "contact_email": None,
+                "vehicle": {"make": "Toyota", "model": "Camry", "year": 2018},
+                "damage": {"description": "Windshield chip", "location": "windshield"},
+                "incident_description": "Rock hit windshield"
+            }
+        ]
+    })
+    
+    # Mock first feedback response (score 7/10)
+    feedback_response_1 = Mock()
+    feedback_response_1.text = json.dumps({
+        "feedback": "Missing incident date",
+        "issues": [{"claim_id": "C001", "field": "incident_date", "issue": "Not extracted", "suggestion": "Add date"}],
+        "json_valid": True,
+        "overall_quality_score": 7
+    })
+    
+    # Mock first refined extraction response
+    refined_response_1 = Mock()
+    refined_response_1.text = json.dumps({
+        "claims": [
+            {
+                "claim_id": "C001",
+                "incident_date": "2024-01-15",
+                "incident_location": "highway",
+                "policyholder_name": "John Smith",
+                "contact_phone": None,
+                "contact_email": None,
+                "vehicle": {"make": "Toyota", "model": "Camry", "year": 2018},
+                "damage": {"description": "Windshield chip", "location": "windshield"},
+                "incident_description": "Rock hit windshield"
+            }
+        ]
+    })
+    
+    # Mock second feedback response (score 10/10 - target achieved)
+    feedback_response_2 = Mock()
+    feedback_response_2.text = json.dumps({
+        "feedback": "Extraction is now complete and accurate",
+        "issues": [],
+        "json_valid": True,
+        "overall_quality_score": 10
+    })
+    
+    with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
+        with patch("google.genai.Client") as mock_client:
+            mock_instance = Mock()
+            # Set up side_effect to return different responses for each call
+            mock_instance.models.generate_content.side_effect = [
+                initial_response,       # First call: initial extraction
+                feedback_response_1,    # Second call: first feedback (score 7)
+                refined_response_1,     # Third call: first refinement
+                feedback_response_2,    # Fourth call: second feedback (score 10)
+            ]
+            mock_client.return_value = mock_instance
+            
+            result = extract_fnol_information_batch("Test FNOL text", enable_feedback_loop=True)
+            
+            # Verify 4 LLM calls were made (extraction + feedback + refine + feedback with 10/10)
+            assert mock_instance.models.generate_content.call_count == 4
+            
+            # Verify the refined result has incident_date
+            assert len(result.claims) == 1
+            assert result.claims[0].incident_date == "2024-01-15"
+
+
+def test_extract_fnol_without_feedback_loop():
+    """Test that without feedback loop, only 1 LLM call is made."""
+    mock_response = Mock()
+    mock_response.text = json.dumps({
+        "claims": [
+            {
+                "claim_id": "C001",
+                "policyholder_name": "John Smith",
+                "damage": {"description": "Test damage"}
+            }
+        ]
+    })
+    
+    with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
+        with patch("google.genai.Client") as mock_client:
+            mock_instance = Mock()
+            mock_instance.models.generate_content.return_value = mock_response
+            mock_client.return_value = mock_instance
+            
+            result = extract_fnol_information_batch("Test FNOL text", enable_feedback_loop=False)
+            
+            # Verify only 1 LLM call was made (no feedback loop)
+            assert mock_instance.models.generate_content.call_count == 1
+            assert len(result.claims) == 1
