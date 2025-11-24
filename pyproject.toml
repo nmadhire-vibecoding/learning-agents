@@ -2,7 +2,7 @@
 name = "udacity"
 version = "0.1.0"
 description = "A simple Hello World application"
-requires-python = ">=3.11"
+requires-python = ">=3.11.13"
 dependencies = [
     "google-genai>=0.1.0",
     "pydantic>=2.12.4",
@@ -26,4 +26,5 @@ packages = ["src"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.1",
+    "flake8>=7.0.0",
 ]
